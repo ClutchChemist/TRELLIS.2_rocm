@@ -226,27 +226,53 @@ def to_glb(
     if verbose:
         print("Sampling attributes...", end='', flush=True)
         
-    # Setup differentiable rasterizer context
-    ctx = dr.RasterizeCudaContext()
-    # Prepare UV coordinates for rasterization (rendering in UV space)
-    uvs_rast = torch.cat([out_uvs * 2 - 1, torch.zeros_like(out_uvs[:, :1]), torch.ones_like(out_uvs[:, :1])], dim=-1).unsqueeze(0)
-    rast = torch.zeros((1, texture_size, texture_size, 4), device='cuda', dtype=torch.float32)
+    # ROCm-compatible rasterizer using OpenCV + PyTorch (bypasses nvdiffrast)
+    H, W = texture_size, texture_size
+    out_faces_np = out_faces.cpu().numpy()
+    out_uvs_np = out_uvs.cpu().numpy()
     
-    # Rasterize in chunks to save memory
-    for i in range(0, out_faces.shape[0], 100000):
-        rast_chunk, _ = dr.rasterize(
-            ctx, uvs_rast, out_faces[i:i+100000],
-            resolution=[texture_size, texture_size],
-        )
-        mask_chunk = rast_chunk[..., 3:4] > 0
-        rast_chunk[..., 3:4] += i # Store face ID in alpha channel
-        rast = torch.where(mask_chunk, rast_chunk, rast)
+    face_ids = np.zeros((H, W), dtype=np.int32)
+    uvs_px = out_uvs_np * np.array([W - 1, H - 1])
+    uvs_px_int = np.round(uvs_px).astype(np.int32)
     
-    # Mask of valid pixels in texture
-    mask = rast[0, ..., 3] > 0
+    if verbose:
+        print("[ROCm] Bypassing NVDiffrast: rasterizing UVs via OpenCV...")
+    for i, f in enumerate(out_faces_np):
+        cv2.fillConvexPoly(face_ids, uvs_px_int[f], i + 1, lineType=cv2.LINE_8)
     
-    # Interpolate 3D positions in UV space (finding 3D coord for every texel)
-    pos = dr.interpolate(out_vertices.unsqueeze(0), rast, out_faces)[0][0]
+    face_ids_torch = torch.from_numpy(face_ids).long().cuda()
+    mask = face_ids_torch > 0
+    
+    pos = torch.zeros(texture_size, texture_size, 3, device='cuda')
+    
+    if mask.any():
+        gy, gx = torch.meshgrid(torch.arange(H, device='cuda'), torch.arange(W, device='cuda'), indexing='ij')
+        px = gx[mask].float()
+        py = gy[mask].float()
+        
+        valid_face_idx = face_ids_torch[mask] - 1
+        valid_faces = out_faces[valid_face_idx].long()
+        
+        uv0 = out_uvs[valid_faces[:, 0]] * torch.tensor([W - 1, H - 1], device='cuda')
+        uv1 = out_uvs[valid_faces[:, 1]] * torch.tensor([W - 1, H - 1], device='cuda')
+        uv2 = out_uvs[valid_faces[:, 2]] * torch.tensor([W - 1, H - 1], device='cuda')
+        
+        p0 = out_vertices[valid_faces[:, 0]]
+        p1 = out_vertices[valid_faces[:, 1]]
+        p2 = out_vertices[valid_faces[:, 2]]
+        
+        denom = (uv1[:, 1] - uv2[:, 1]) * (uv0[:, 0] - uv2[:, 0]) + (uv2[:, 0] - uv1[:, 0]) * (uv0[:, 1] - uv2[:, 1])
+        denom = torch.where(denom == 0, torch.ones_like(denom) * 1e-6, denom)
+        
+        w0 = ((uv1[:, 1] - uv2[:, 1]) * (px - uv2[:, 0]) + (uv2[:, 0] - uv1[:, 0]) * (py - uv2[:, 1])) / denom
+        w1 = ((uv2[:, 1] - uv0[:, 1]) * (px - uv2[:, 0]) + (uv0[:, 0] - uv2[:, 0]) * (py - uv2[:, 1])) / denom
+        w2 = 1.0 - w0 - w1
+        
+        interp_pos = w0.unsqueeze(1) * p0 + w1.unsqueeze(1) * p1 + w2.unsqueeze(1) * p2
+        pos[mask] = interp_pos
+        if verbose:
+            print(f"[ROCm] Rasterized pixels: {mask.sum().item()} / {H*W}")
+    
     valid_pos = pos[mask]
     
     # Map these positions back to the *original* high-res mesh to get accurate attributes
@@ -278,11 +304,14 @@ def to_glb(
     mask = mask.cpu().numpy()
     
     # Extract channels based on layout (BaseColor, Metallic, Roughness, Alpha)
-    base_color = np.clip(attrs[..., attr_layout['base_color']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
+    # Gamma correction: AI outputs Linear color; convert to sRGB for standard 3D viewers
+    base_linear = np.clip(attrs[..., attr_layout['base_color']].cpu().numpy(), 0.0, 1.0)
+    base_srgb = np.power(base_linear, 1.0 / 2.2)
+    base_color = (base_srgb * 255).astype(np.uint8)
     metallic = np.clip(attrs[..., attr_layout['metallic']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
     roughness = np.clip(attrs[..., attr_layout['roughness']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
     alpha = np.clip(attrs[..., attr_layout['alpha']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
-    alpha_mode = 'OPAQUE'
+    alpha_mode = 'MASK'
     
     # Inpainting: fill gaps (dilation) to prevent black seams at UV boundaries
     mask_inv = (~mask).astype(np.uint8)
@@ -300,7 +329,8 @@ def to_glb(
         metallicFactor=1.0,
         roughnessFactor=1.0,
         alphaMode=alpha_mode,
-        doubleSided=True if not remesh else False,
+        alphaCutoff=0.5,
+        doubleSided=True,
     )
     
     # --- Coordinate System Conversion & Final Object ---
