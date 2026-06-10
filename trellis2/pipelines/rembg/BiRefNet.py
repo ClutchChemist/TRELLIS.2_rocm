@@ -19,18 +19,22 @@ class BiRefNet:
             ]
         )
     
-    def to(self, device: str):
+    def to(self, device):
         self.model.to(device)
+
+    def float(self):
+        self.model.float()
 
     def cuda(self):
         self.model.cuda()
 
     def cpu(self):
         self.model.cpu()
-        
+
     def __call__(self, image: Image.Image) -> Image.Image:
         image_size = image.size
-        input_images = self.transform_image(image).unsqueeze(0).to("cuda")
+        dtype = next(self.model.parameters()).dtype
+        input_images = self.transform_image(image).unsqueeze(0).to("cuda", dtype=dtype)
         # Prediction
         with torch.no_grad():
             preds = self.model(input_images)[-1].sigmoid().cpu()

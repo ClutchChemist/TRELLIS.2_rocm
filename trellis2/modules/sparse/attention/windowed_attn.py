@@ -60,6 +60,8 @@ def calc_window_partition(
             'cu_seqlens': torch.cat([torch.tensor([0], device=tensor.device), torch.cumsum(seq_lens, dim=0)], dim=0).int(),
             'max_seqlen': torch.max(seq_lens)
         }
+    else:  # sdpa
+        attn_func_args = {'seq_lens': seq_lens}
 
     return fwd_indices, bwd_indices, seq_lens, attn_func_args
     
@@ -113,6 +115,19 @@ def sparse_windowed_scaled_dot_product_self_attention(
         if 'flash_attn' not in globals():
             import flash_attn
         out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)  # [M, H, C]
+    else:  # sdpa
+        import torch.nn.functional as F
+        q_w, k_w, v_w = qkv_feats.unbind(dim=1)  # [M, H, C]
+        out_chunks = []
+        start = 0
+        for sl in attn_func_args['seq_lens']:
+            sl = int(sl)
+            qc = q_w[start:start+sl].transpose(0, 1).unsqueeze(0)  # [1, H, sl, C]
+            kc = k_w[start:start+sl].transpose(0, 1).unsqueeze(0)
+            vc = v_w[start:start+sl].transpose(0, 1).unsqueeze(0)
+            out_chunks.append(F.scaled_dot_product_attention(qc, kc, vc).squeeze(0).transpose(0, 1))
+            start += sl
+        out = torch.cat(out_chunks, dim=0)  # [M, H, C]
 
     out = out[bwd_indices]      # [T, H, C]
 
@@ -184,6 +199,20 @@ def sparse_windowed_scaled_dot_product_cross_attention(
             cu_seqlens_q=q_attn_func_args['cu_seqlens'], cu_seqlens_k=kv_attn_func_args['cu_seqlens'],
             max_seqlen_q=q_attn_func_args['max_seqlen'], max_seqlen_k=kv_attn_func_args['max_seqlen'],
         )  # [M, H, C]
+    else:  # sdpa
+        import torch.nn.functional as F
+        k_f, v_f = kv_feats.unbind(dim=1)  # [M, H, C]
+        out_chunks = []
+        q_off = kv_off = 0
+        for q_sl, kv_sl in zip(q_attn_func_args['seq_lens'], kv_attn_func_args['seq_lens']):
+            q_sl, kv_sl = int(q_sl), int(kv_sl)
+            qc = q_feats[q_off:q_off+q_sl].transpose(0, 1).unsqueeze(0)    # [1, H, Sq, C]
+            kc = k_f[kv_off:kv_off+kv_sl].transpose(0, 1).unsqueeze(0)
+            vc = v_f[kv_off:kv_off+kv_sl].transpose(0, 1).unsqueeze(0)
+            out_chunks.append(F.scaled_dot_product_attention(qc, kc, vc).squeeze(0).transpose(0, 1))
+            q_off += q_sl
+            kv_off += kv_sl
+        out = torch.cat(out_chunks, dim=0)  # [M, H, C]
 
     out = out[q_bwd_indices]      # [T, H, C]
 

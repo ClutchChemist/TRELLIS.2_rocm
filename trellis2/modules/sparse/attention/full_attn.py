@@ -169,7 +169,30 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             k = k.reshape(N * L, H, CI)     # [T_KV, H, Ci]
             v = v.reshape(N * L, H, CO)     # [T_KV, H, Co]
 
-    if config.ATTN == 'xformers':
+    if config.ATTN == 'sdpa':
+        import torch.nn.functional as F
+        if num_all_args == 1:
+            q_var, k_var, v_var = qkv.unbind(dim=1)
+        elif num_all_args == 2:
+            q_var = q
+            k_var, v_var = kv.unbind(dim=1)
+        elif num_all_args == 3:
+            q_var, k_var, v_var = q, k, v
+        out_chunks = []
+        q_off = kv_off = 0
+        for qs, kvs in zip(q_seqlen, kv_seqlen):
+            qc = q_var[q_off:q_off+qs].transpose(0, 1).unsqueeze(0)    # [1, H, Sq, C]
+            kc = k_var[kv_off:kv_off+kvs].transpose(0, 1).unsqueeze(0) # [1, H, Skv, C]
+            vc = v_var[kv_off:kv_off+kvs].transpose(0, 1).unsqueeze(0)
+            out_chunks.append(F.scaled_dot_product_attention(qc, kc, vc).squeeze(0).transpose(0, 1))
+            q_off += qs
+            kv_off += kvs
+        out = torch.cat(out_chunks, dim=0)
+        if s is not None:
+            return s.replace(out)
+        else:
+            return out.reshape(N, L, H, -1)
+    elif config.ATTN == 'xformers':
         if 'xops' not in globals():
             import xformers.ops as xops
         if num_all_args == 1:

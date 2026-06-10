@@ -88,7 +88,7 @@ class DinoV3FeatureExtractor:
             if isinstance(module, torch.nn.ModuleList) and len(module) >= 12:
                 layers = module
                 break
-                
+
         for i, layer_module in enumerate(layers):
             hidden_states = layer_module(
                 hidden_states,

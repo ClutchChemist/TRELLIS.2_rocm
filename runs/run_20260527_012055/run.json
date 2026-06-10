@@ -1,0 +1,111 @@
+{
+  "run_id": "run_20260527_012055",
+  "started_at": "2026-05-26T23:20:55.564707Z",
+  "params": {
+    "image": "/tmp/buildings_v3/building_factory_v2.png",
+    "pipeline_type": "512",
+    "texture_size": 1024,
+    "decimation_target": 100000,
+    "seed": 42
+  },
+  "snapshots": [
+    {
+      "label": "After EnvMap load",
+      "elapsed_s": 0.6,
+      "cpu_pct": 31.7,
+      "ram_used_gb": 2.27,
+      "ram_total_gb": 23.09,
+      "ram_pct": 9.8,
+      "swap_used_gb": 0.34,
+      "swap_pct": 0.8,
+      "vram_alloc_gb": 0.01,
+      "vram_reserv_gb": 0.02,
+      "vram_total_gb": 16.96
+    },
+    {
+      "label": "After pipeline load",
+      "elapsed_s": 165.5,
+      "cpu_pct": 33.3,
+      "ram_used_gb": 16.55,
+      "ram_total_gb": 23.09,
+      "ram_pct": 71.7,
+      "swap_used_gb": 0.34,
+      "swap_pct": 0.8,
+      "vram_alloc_gb": 11.7,
+      "vram_reserv_gb": 11.71,
+      "vram_total_gb": 16.96
+    },
+    {
+      "label": "After get_cond",
+      "elapsed_s": 169.2,
+      "cpu_pct": 37.9,
+      "ram_used_gb": 16.68,
+      "ram_total_gb": 23.09,
+      "ram_pct": 72.2,
+      "swap_used_gb": 0.34,
+      "swap_pct": 0.8,
+      "vram_alloc_gb": 11.74,
+      "vram_reserv_gb": 11.82,
+      "vram_total_gb": 16.96
+    },
+    {
+      "label": "After sampling + flow models offloaded",
+      "elapsed_s": 222.9,
+      "cpu_pct": 25.4,
+      "ram_used_gb": 16.75,
+      "ram_total_gb": 23.09,
+      "ram_pct": 72.5,
+      "swap_used_gb": 0.34,
+      "swap_pct": 0.8,
+      "vram_alloc_gb": 3.79,
+      "vram_reserv_gb": 3.93,
+      "vram_total_gb": 16.96
+    },
+    {
+      "label": "After decode",
+      "elapsed_s": 232.5,
+      "cpu_pct": 26.1,
+      "ram_used_gb": 16.81,
+      "ram_total_gb": 23.09,
+      "ram_pct": 72.8,
+      "swap_used_gb": 0.34,
+      "swap_pct": 0.8,
+      "vram_alloc_gb": 3.94,
+      "vram_reserv_gb": 4.15,
+      "vram_total_gb": 16.96
+    },
+    {
+      "label": "After VRAM free (models to CPU)",
+      "elapsed_s": 236.8,
+      "cpu_pct": 25.8,
+      "ram_used_gb": 17.25,
+      "ram_total_gb": 23.09,
+      "ram_pct": 74.7,
+      "swap_used_gb": 0.34,
+      "swap_pct": 0.8,
+      "vram_alloc_gb": 0.65,
+      "vram_reserv_gb": 0.92,
+      "vram_total_gb": 16.96
+    },
+    {
+      "label": "After GLB export",
+      "elapsed_s": 246.9,
+      "cpu_pct": 39.7,
+      "ram_used_gb": 17.32,
+      "ram_total_gb": 23.09,
+      "ram_pct": 75.0,
+      "swap_used_gb": 0.34,
+      "swap_pct": 0.8,
+      "vram_alloc_gb": 0.65,
+      "vram_reserv_gb": 4.09,
+      "vram_total_gb": 16.96
+    }
+  ],
+  "result": {
+    "success": true,
+    "elapsed_s": 248.7,
+    "output": "runs/run_20260527_012055/output.glb",
+    "error": null,
+    "ended_at": "2026-05-26T23:25:04.277980Z"
+  }
+}
